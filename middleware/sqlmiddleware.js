@@ -2,35 +2,68 @@
 const logger = require('../utils/logger');
 
 function detectSQLInjection(query) {
-    // Convert to lowercase for case-insensitive matching
     const normalizedQuery = query.toLowerCase();
 
-    // Simple but effective patterns for common SQL injection techniques
     const dangerousPatterns = [
-        /\bor\b[\s\d]+[=<>]/i,           // OR with comparison
-        /\bor\b.*?(?:true|false|\d+=\d+)/i,  // OR with boolean/number comparison
-        /union\s+(?:all\s+)?select/i,     // UNION-based injection
-        /;\s*(?:drop|delete|update|insert)/i,  // Stacked queries
-        /--/,                             // Comments
-        /\/\*/,                           // Multi-line comments
-        /'.*?'.*?=.*?'.*?'/i,            // Quote-based injection
-        /\bxp_cmdshell\b/i,              // Command execution
-        /\bexec\b/i,                      // Stored procedure execution
-        /\bdrop\b/i,                      // DROP statements
-        /\bdelete\b/i,                    // DELETE statements
-        /\b(?:true|false|\d+)\s*(?:or|and)\s*(?:true|false|\d+)\b/i  // Boolean logic injection
+        /\bor\b[\s\d]+[=<>]/i,
+        /\bor\b.*?(?:true|false|\d+=\d+)/i,
+        /union\s+(?:all\s+)?select/i,
+        /;\s*(?:drop|delete|update|insert)/i,
+        /--/,
+        /\/\*/,
+        /'.*?'.*?=.*?'.*?'/i,
+        /\bxp_cmdshell\b/i,
+        /\bexec\b/i,
+        /\bdrop\b/i,
+        /\bdelete\b/i,
+        /\b(?:true|false|\d+)\s*(?:or|and)\s*(?:true|false|\d+)\b/i
     ];
 
-    return dangerousPatterns.some(pattern => pattern.test(normalizedQuery));
+    // Check for dangerous patterns
+    const hasInjectionPattern = dangerousPatterns.some(pattern => pattern.test(normalizedQuery));
+    
+    // Additional database-specific checks
+    const hasMultipleQueries = query.includes(';');
+    const hasUnbalancedQuotes = (query.match(/'/g) || []).length % 2 !== 0;
+    
+    return hasInjectionPattern || hasMultipleQueries || hasUnbalancedQuotes;
+}
+
+function validateQuery(query) {
+    // Basic query structure validation
+    const validQueryTypes = ['select', 'insert', 'update', 'delete'];
+    const queryType = query.trim().toLowerCase().split(' ')[0];
+    
+    if (!validQueryTypes.includes(queryType)) {
+        return false;
+    }
+    
+    // For demo purposes, only allow SELECT queries
+    if (queryType !== 'select') {
+        return false;
+    }
+    
+    return true;
 }
 
 module.exports = (req, res, next) => {
     const { query } = req.body;
     
     if (!query) {
-        return next();
+        return res.status(400).json({
+            error: 'No query provided!'
+        });
     }
 
+    // Validate query structure
+    if (!validateQuery(query)) {
+        logger.warn(`Invalid query structure: ${query}`);
+        return res.status(400).json({
+            error: 'Invalid query structure'
+        });
+    }
+
+    // Check for SQL injection
     if (detectSQLInjection(query)) {
         logger.warn(`SQL Injection attempt blocked: ${query}`);
         return res.status(403).json({
